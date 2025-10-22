@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Divider (Genetic Algorithm)</title>
+    <style>
+        body { font-family: 'Arial', sans-serif; margin: 20px; background-color: #f4f7f9; color: #333; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 25px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1 { color: #0056b3; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="file"], input[type="number"] { padding: 10px; border: 1px solid #ccc; border-radius: 4px; width: 100%; box-sizing: border-box; }
+        button { background-color: #007bff; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; transition: background-color 0.3s; }
+        button:hover { background-color: #0056b3; }
+        #statusMessage { margin-top: 20px; padding: 10px; border-radius: 4px; display: none; }
+        .loading { background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+        .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .results-section { margin-top: 30px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛠️ ระบบแบ่งงานด้วย Genetic Algorithm</h1>
+        <p>อัพโหลดไฟล์ Excel (.xlsx) ที่มีคอลัมน์ **'Task'** (ชื่องาน) และ **'Workload'** (ปริมาณงาน) และระบุจำนวนคน (N) ที่ต้องการแบ่งงานให้</p>
+
+        <form id="uploadForm">
+            <div class="form-group">
+                <label for="excelFile">เลือกไฟล์ Excel:</label>
+                <input type="file" id="excelFile" name="excelFile" accept=".xlsx" required>
+            </div>
+            <div class="form-group">
+                <label for="n_people">จำนวนคนที่ต้องการแบ่งงานให้ (N):</label>
+                <input type="number" id="n_people" name="n_people" min="2" value="3" required>
+            </div>
+            <button type="submit" id="submitBtn">คำนวณแบ่งงาน</button>
+        </form>
+
+        <div id="statusMessage" class="loading"></div>
+
+        <div class="results-section" id="resultsSection" style="display: none;">
+            <h2>📊 ผลลัพธ์การจัดกลุ่ม</h2>
+            <p><strong>Variance ต่ำสุดที่ทำได้:</strong> <span id="bestVariance"></span></p>
+
+            <h3>สรุป Workload ของแต่ละกลุ่ม:</h3>
+            <ul id="groupSummary"></ul>
+
+            <h3>รายละเอียดการแบ่งงาน (Task by Task):</h3>
+            <table id="taskTable">
+                <thead>
+                    <tr><th>Task</th><th>Workload</th><th>Label (กลุ่ม)</th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+            
+            <button id="downloadBtn" style="margin-top: 20px;">ดาวน์โหลดผลลัพธ์ (Excel)</button>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const form = e.target;
+            const fileInput = document.getElementById('excelFile');
+            const nPeopleInput = document.getElementById('n_people');
+            const statusDiv = document.getElementById('statusMessage');
+            const submitBtn = document.getElementById('submitBtn');
+            const resultsSection = document.getElementById('resultsSection');
+
+            statusDiv.style.display = 'block';
+            statusDiv.className = 'loading';
+            statusDiv.textContent = 'กำลังอัพโหลดและรัน Genetic Algorithm... อาจใช้เวลาสักครู่ ⏳';
+            submitBtn.disabled = true;
+            resultsSection.style.display = 'none';
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('n_people', nPeopleInput.value);
+
+            try {
+                const response = await fetch('/calculate', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.status === 'success') {
+                    statusDiv.className = 'success';
+                    statusDiv.textContent = `✅ คำนวณเสร็จสิ้น! Variance ที่ดีที่สุดคือ ${data.best_variance}`;
+                    
+                    document.getElementById('bestVariance').textContent = data.best_variance;
+                    
+                    // แสดงสรุปกลุ่ม
+                    const groupSummary = document.getElementById('groupSummary');
+                    groupSummary.innerHTML = data.groups.map(g => 
+                        `<li>กลุ่ม ${g.Group}: ${g.Total_Workload} หน่วย</li>`
+                    ).join('');
+
+                    // แสดงตารางผลลัพธ์
+                    const taskTableBody = document.querySelector('#taskTable tbody');
+                    taskTableBody.innerHTML = data.table_data.map(item => `
+                        <tr>
+                            <td>${item.task}</td>
+                            <td>${item.workload}</td>
+                            <td>${item.label}</td>
+                        </tr>
+                    `).join('');
+
+                    // ตั้งค่าปุ่มดาวน์โหลด
+                    const downloadBtn = document.getElementById('downloadBtn');
+                    downloadBtn.onclick = () => {
+                        window.location.href = `/download/${data.download_filename}`;
+                    };
+                    
+                    resultsSection.style.display = 'block';
+
+                } else {
+                    // แสดงข้อผิดพลาด
+                    statusDiv.className = 'error';
+                    statusDiv.textContent = `❌ ข้อผิดพลาด: ${data.error || 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ'}`;
+                }
+
+            } catch (error) {
+                statusDiv.className = 'error';
+                statusDiv.textContent = `❌ เกิดข้อผิดพลาดในการเชื่อมต่อ: ${error.message}`;
+                console.error('Fetch error:', error);
+            } finally {
+                submitBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
